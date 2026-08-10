@@ -568,3 +568,42 @@ a non-admin, and certificate verification for both a real seeded
 certificate and a bogus code via both the search form and the direct
 detail-page URL) — 89 unit / 17 integration / 15 e2e total, all passing,
 alongside a clean production build.
+
+## Deployment (Vercel)
+
+Deployed via the Vercel CLI, project linked to the GitHub repo (`vercel
+link --project elearning`), production deploys via `vercel --prod`.
+
+**Real bug caught by actually testing the live deployment, not just
+trusting a successful build**: the first production deploy built and
+served static/public pages fine, but `/dashboard` (and anything else
+querying the database) 500'd. `npm run build` succeeding is not the same
+claim as "the app works in production" — it only proves the code
+compiles and prerenders; it never opens a real database connection under
+concurrent load the way a live serverless deployment does. `vercel logs`
+showed the real error Next.js redacts from the browser in production:
+`EMAXCONNSESSION — max clients reached in session mode, pool_size: 15`.
+Cause: `DATABASE_URL` used Supabase's pooler on port `5432`
+(session mode), which was fine locally (one long-lived dev-server
+process, one connection) but wrong for serverless — Vercel can spin up
+many concurrent function instances, each opening its own connection via
+`src/lib/prisma.ts`'s `pg.Pool`, and session mode cap on the free tier is
+15 total concurrent clients. Fixed by switching to the pooler's
+transaction-mode port `6543` with `?pgbouncer=true` appended (disables
+prepared-statement caching, which pgbouncer transaction mode doesn't
+support — Prisma's documented requirement for this setup) — verified by
+redeploying and re-running the exact login → dashboard flow that had
+500'd, both against the live URL directly and via a scripted Playwright
+check, not just re-trusting the build output. `README.md`'s environment
+variable docs were updated with this requirement so a future local setup
+doesn't quietly work on session mode and only fail once deployed.
+
+**GitHub auto-deploy needs a manual one-time step**: `vercel git connect`
+(and the auto-connect `vercel link` attempts) failed with a generic
+"Failed to connect" error — this is because the Vercel GitHub App isn't
+yet authorized for this repo/account, which requires a browser-based
+GitHub authorization only the repo owner can grant (Vercel dashboard →
+Project → Settings → Git → Connect, or installing the Vercel GitHub App
+directly from GitHub's App settings). Not something the CLI can complete
+unattended. Until that's done, deploys are manual (`vercel --prod`);
+once connected, every push to `master` deploys automatically.

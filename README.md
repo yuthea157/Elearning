@@ -35,6 +35,13 @@ cp .env.example .env.local
 - `DATABASE_URL` — your PostgreSQL connection string. If you're using Supabase, use the
   **connection pooler** string (`...pooler.supabase.com`), not the direct `db.<ref>.supabase.co`
   host — the direct host is IPv6-only and unreachable from many networks/CI runners.
+  **Use the pooler's transaction-mode port, `6543`, with `?pgbouncer=true` appended** —
+  not the session-mode port `5432`. Session mode caps concurrent clients low (Supabase's
+  free tier: 15) and a serverless host like Vercel opens far more concurrent connections
+  than that under real traffic; deploying with the session-mode URL 500s on the first page
+  that hits the database under any concurrency (`EMAXCONNSESSION`). Local dev works fine on
+  either port at low concurrency, but there's no reason to run a different pooling mode
+  locally than in production, so use `6543?pgbouncer=true` everywhere.
 - `SESSION_SECRET` — generate one with:
   ```bash
   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -120,6 +127,22 @@ npm run start
 
 ## Deployment
 
-Not yet documented — see `docs/ARCHITECTURE.md` for what's built vs. outstanding before this
-is production-deployable (payments, video pipeline, and admin moderation are not implemented
-yet).
+Deployed on [Vercel](https://vercel.com), connected to this GitHub repo. Uses the standard
+Vercel + Next.js integration — no custom build config needed (`next build` is auto-detected).
+
+**Environment variables** (Project → Settings → Environment Variables): the same ones listed
+above under **Environment variables**, plus set `NEXT_PUBLIC_APP_URL` to the deployed URL
+(not `localhost`) once you know it. `DATABASE_URL` must use the pooler's transaction-mode
+port (`6543?pgbouncer=true`) — see the note above; the session-mode port works for local dev
+but 500s under real concurrency on a serverless host.
+
+**Stripe webhook**: after the first deploy, add a webhook endpoint in the Stripe Dashboard
+pointing at `https://<your-domain>/api/webhooks/stripe`, then update `STRIPE_WEBHOOK_SECRET`
+in Vercel to the signing secret it gives you — the one generated for local simulated testing
+won't verify real events.
+
+**Auto-deploy on push**: connecting the GitHub repo in the Vercel dashboard (Project →
+Settings → Git) makes every push to `master` deploy automatically. This needs a one-time
+browser authorization (installing/permitting the Vercel GitHub App for the repo) that can't
+be done from the CLI alone — `vercel git connect` will fail with a generic "Failed to
+connect" error until that's granted. Without it, deploy manually with `vercel --prod`.
