@@ -26,6 +26,25 @@ export const editUserSchema = registerSchema.omit({ password: true }).extend({
   role: z.enum(["STUDENT", "INSTRUCTOR", "ADMIN"]),
 });
 
+export const editOwnProfileSchema = registerSchema.omit({ password: true });
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Enter your current password."),
+    newPassword: z
+      .string()
+      .min(8, "Password must be at least 8 characters.")
+      .regex(/[A-Z]/, "Password must include an uppercase letter.")
+      .regex(/[0-9]/, "Password must include a number."),
+    confirmPassword: z.string().min(1, "Re-enter the new password."),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords don't match.",
+    path: ["confirmPassword"],
+  });
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type EditUserInput = z.infer<typeof editUserSchema>;
+export type EditOwnProfileInput = z.infer<typeof editOwnProfileSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

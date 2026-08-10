@@ -607,3 +607,65 @@ Project → Settings → Git → Connect, or installing the Vercel GitHub App
 directly from GitHub's App settings). Not something the CLI can complete
 unattended. Until that's done, deploys are manual (`vercel --prod`);
 once connected, every push to `master` deploys automatically.
+
+## Admin self-service account (profile + password)
+
+A real gap: nothing in the app let *any* account holder change their own
+password, and an admin editing their own name/username/email meant
+finding themselves in the full `/admin/users` list and using the
+generic per-user edit dialog — workable, but not a dedicated "this is
+your account" surface, and password changes weren't possible there
+either since `updateUserAction` only ever touched profile fields.
+
+Added as a second tab ("My account") on the existing `/admin/settings`
+page, next to the site-content settings — both are "settings," and an
+admin dashboard commonly groups a personal-account section under the
+same nav entry as site-wide configuration, rather than adding a new top
+level nav item for it.
+
+**`updateOwnProfileAction`** is deliberately separate from
+`admin-users.ts`'s `updateUserAction`, not a thin wrapper around it —
+it operates on `requireRole("ADMIN")`'s own id rather than taking a
+`userId` param, so there's no risk of a self-editing form ever being
+wired to edit someone else's account by an id mix-up. Same email/username
+uniqueness checks as the generic version (excluding self).
+
+**`changeOwnPasswordAction`** requires the current password
+(`verifyPassword` against the stored hash — fetched directly via
+`prisma.user.findUnique`, not through `getCurrentUser()`, which
+deliberately strips `passwordHash` before returning a user object to any
+caller) before accepting a new one, using the same complexity rule as
+registration (`changePasswordSchema`, a Zod `.refine()` for the
+confirm-password match). Both new/generic Zod schemas were added directly
+next to the existing auth schemas in `lib/schemas/auth.ts`.
+
+**A real ESLint rule caught a real anti-pattern, twice**: this project's
+`eslint-plugin-react-hooks` config includes the React Compiler-aligned
+`react-hooks/set-state-in-effect` and `react-hooks/refs` rules. The first
+pass at a "show a transient success message, then auto-dismiss after 3s"
+pattern called `setState` synchronously inside a `useEffect` body — flagged
+immediately. The documented React fix for that (compare the current value
+against a ref of the previous one, conditionally `setState` during render)
+turned out to *also* be disallowed by this config's stricter `refs` rule
+(no ref reads/writes during render at all, only in effects/event
+handlers — a React Compiler assumption that render must stay pure).
+Rather than fight the lint config to keep a cosmetic auto-dismiss timer,
+simplified to deriving the success message directly from
+`useActionState`'s own `state.success` (no extra state, no ref, no
+timer) — it stays visible until the next submission rather than fading
+after 3 seconds, which is a perfectly reasonable trade for removing two
+categories of hook-lint risk from a two-field form.
+
+**Live-verified against the real (shared, production-connected) database,
+including the failure paths**, not just the happy path: wrong current
+password rejected, mismatched confirmation rejected, a genuine password
+change confirmed by actually logging in with the new password afterward
+(not just trusting the "Password updated." message), confirmed the old
+password stops working, then restored the demo admin account back to its
+original name and `Password123` password — verified with one more real
+login — so this session's testing didn't leave the documented demo
+credentials broken for anyone else using this deployment. Covered by 3
+new Playwright e2e tests (`tests/e2e/admin-account.spec.ts`, run
+`.serial()` since the password-change test mutates the real shared admin
+account and must not interleave with anything else logging in as that
+user) — 89 unit / 17 integration / 18 e2e total, all passing.
