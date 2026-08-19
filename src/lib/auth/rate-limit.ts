@@ -18,7 +18,18 @@ const MAX_TRACKED_KEYS = 50_000;
 export async function getClientIp() {
   const h = await headers();
   const forwardedFor = h.get("x-forwarded-for");
-  if (forwardedFor) return forwardedFor.split(",")[0].trim();
+  if (forwardedFor) {
+    // Take the LAST entry, not the first. X-Forwarded-For is a
+    // client-appendable list ("client, proxy1, proxy2, ..."); a request can
+    // arrive with an attacker-supplied first value already in place, and if
+    // the front-end proxy appends rather than overwrites (the common nginx
+    // default), trusting the first entry lets an attacker rotate a fake IP
+    // per request and bypass the rate limiter entirely. The last entry is
+    // the one added by the proxy hop closest to this server, which a client
+    // cannot forge as long as that hop is trusted.
+    const parts = forwardedFor.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 0) return parts[parts.length - 1];
+  }
   return h.get("x-real-ip") ?? "unknown";
 }
 

@@ -7,6 +7,12 @@ const secretKey = process.env.SESSION_SECRET;
 if (!secretKey) {
   throw new Error("SESSION_SECRET is not set — add it to .env.local");
 }
+// Catches an accidental placeholder ("changeme", "secret", ...) rather than
+// the real 32-byte value .env.example's own generator produces -- presence
+// alone doesn't guarantee it's actually strong.
+if (secretKey.length < 32) {
+  throw new Error("SESSION_SECRET is too short — generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"");
+}
 const encodedKey = new TextEncoder().encode(secretKey);
 
 export type SessionPayload = {
