@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { registerSchema, loginSchema } from "@/lib/schemas/auth";
 import { createUser, findUserByEmail, findUserByUsername } from "@/lib/data/users";
-import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { hashPassword, verifyPasswordConstantTime } from "@/lib/auth/password";
 import { createSession, deleteSession } from "@/lib/auth/session";
 import { enforceRateLimit, formatRetryAfter, getClientIp } from "@/lib/auth/rate-limit";
 
@@ -68,16 +68,15 @@ export async function loginAction(_prevState: AuthFormState, formData: FormData)
 
   const { email, password, remember } = parsed.data;
   const user = await findUserByEmail(email);
-  if (!user) {
+
+  // Always run the bcrypt compare, even when there's no user to check
+  // against, so response timing can't reveal whether an email is registered.
+  const passwordMatches = await verifyPasswordConstantTime(password, user?.passwordHash);
+  if (!user || !passwordMatches) {
     return { formError: "Incorrect email or password." };
   }
   if (user.status === "SUSPENDED") {
     return { formError: "This account has been suspended. Contact support for help." };
-  }
-
-  const passwordMatches = await verifyPassword(password, user.passwordHash);
-  if (!passwordMatches) {
-    return { formError: "Incorrect email or password." };
   }
 
   await createSession(user.id, remember ? 30 : 1);
